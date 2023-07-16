@@ -1,0 +1,103 @@
+substitutions:
+  friendly_name: Sunsynk ESP32 Fan
+  device_name: sunsynk_esp32_fan
+
+esphome:
+  name: sunsynk-esp32-fan
+
+# Throttle writing parameters to the internal flash memory to reduce ESP memory wear / degradation
+preferences:
+  flash_write_interval: 15min
+
+<<: !include common.yaml
+
+#########################
+# ESP32 AND NETWORK SETUP
+
+esp32:
+  board: nodemcu-32s
+  framework:
+    type: arduino
+
+logger:
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: $friendly_name IP Address
+
+  - platform: template
+    name: ${friendly_name} Uptime
+    id: ${device_name}_uptime
+    lambda: |-
+      uint32_t dur = id(${device_name}_uptime_sec).state;
+      int dys = 0;
+      int hrs = 0;
+      int mnts = 0;
+      if (dur > 86399) {
+        dys = trunc(dur / 86400);
+        dur = dur - (dys * 86400);
+      }
+      if (dur > 3599) {
+        hrs = trunc(dur / 3600);
+        dur = dur - (hrs * 3600);
+      }
+      if (dur > 59) {
+        mnts = trunc(dur / 60);
+        dur = dur - (mnts * 60);
+      }
+      char buffer[17];
+      sprintf(buffer, "%ud %02uh %02um %02us", dys, hrs, mnts, dur);
+      return {buffer};
+    icon: mdi:clock-start
+    update_interval: 123s
+
+sensor:
+  - platform: wifi_signal
+    name: $friendly_name WiFi Strength
+    update_interval: 120s
+
+  - platform: internal_temperature
+    name: $friendly_name Internal Temperature
+
+  - platform: uptime
+    name: ${friendly_name} Uptime Sec
+    id: ${device_name}_uptime_sec
+
+  # Read the Tacho PIN and show measured RPM as a sensor
+  - platform: pulse_counter
+    pin: 
+      number: GPIO25   # Connect to any input PIN on the ESP
+      mode: INPUT_PULLUP
+    unit_of_measurement: 'RPM'
+    id: ${device_name}_fan_speed
+    name: $friendly_name Speed
+    update_interval: 20s
+    accuracy_decimals: 0
+    filters:
+      - multiply: 0.5  # Depending on how many pulses the fan sends per round - should be 0.5 or 1 - try...
+
+output:
+  # Wire this pin (13) into the PWM pin of your 12v fan
+  # ledc is the name of the pwm output system on an esp32
+  - platform: ledc
+    id: ${device_name}_speed
+    pin: 
+      number: GPIO13
+      inverted: false
+      mode: OUTPUT
+    # 25KHz is standard PC fan frequency, minimises buzzing
+    frequency: "25000 Hz"
+    min_power: 20%
+    max_power: 100%
+
+fan:
+  - platform: speed
+    output: ${device_name}_speed
+    restore_mode: ALWAYS_ON
+    name: "${friendly_name} Speed"
+
+switch:
+  - platform: restart
+    name: ${friendly_name} Restart
+    id: sunsynk_fan_restart
